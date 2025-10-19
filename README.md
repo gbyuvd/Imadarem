@@ -40,10 +40,18 @@ t=3: [  C  ] [  H  ] [  O  ] [  N  ] [ EOS ]
 Example:
 ```text
 🔍 Refinement Trajectory (max_steps=10)
+
+t=0: [MASK] [MASK] [MASK] [MASK] [MASK]
+        ↑ ↑ ↑ ↑ ↑  ← High entropy everywhere (max uncertainty)
 t=1: [[12]] [ [5]] [ [5]] [ [5]] [[10]]
+        ↑ ↑ ↑ ↑ ↑  ← High uncertainty at pos 0, 1, 2, 3, 4
 t=2: [ [7]] [ [5]] [ [5]] [ [5]] [ EOS]
-t=3: [ [7]] [ [5]] [[18]] [ [9]] [ EOS]                    
-              ← change_ratio = 0.0% < 2% → ✅ Early stopping triggered
+        ↑ ↑ ↑ ↑ ↑  ← High uncertainty at pos 0, 1, 2, 3, 4
+t=3: [ [7]] [ [5]] [[18]] [ [9]] [ EOS]
+          ↑ ↑ ↑    ← High uncertainty at pos 1, 2, 3
+                   ← change_ratio = 0.0% < 2% → ✅ Early stopping triggered
+        (no critic — just self-consistency)
+
 Final output: '[Ring1] [C] [S] [O] </s>'
 ```
 
