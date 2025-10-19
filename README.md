@@ -18,39 +18,18 @@ The training objective is a **masked-language-modeling** loss whose corruption s
 mask-rate(t) = 1 − t / K.
 
 ```text
-t=0: [MASK] [MASK] [MASK] [MASK] [MASK]
-      ↑↑↑↑↑  ← High entropy everywhere (max uncertainty)
-      Fully masked input — refinement begins
-
-t=1: [  C  ] [MASK] [  O  ] [  N  ] [MASK]
-             ↑                   ↑
-      ← Teacher entropy high at positions 1 & 4 → keep refining
-      Confident tokens (C, O, N) are frozen
-
-t=2: [  C  ] [  H  ] [  O  ] [  N  ] [ EOS ]
-      ← Entropy now low across all active positions
-      Sequence appears chemically plausible and stable
-
-t=3: [  C  ] [  H  ] [  O  ] [  N  ] [ EOS ]
-      ← No changes from t=2 → change_ratio = 0.0% < 2%
-      ✅ Early stopping triggered by self-consistency
-         (no external critic — just internal stability)
-```
-
-Example:
 ```text
 🔍 Refinement Trajectory (max_steps=10)
 
 t=0: [MASK] [MASK] [MASK] [MASK] [MASK]
-        ↑ ↑ ↑ ↑ ↑  ← High entropy everywhere (max uncertainty)
+        ↑     ↑      ↑      ↑      ↑  ← High entropy everywhere (max uncertainty)
 t=1: [[12]] [ [5]] [ [5]] [ [5]] [[10]]
-        ↑ ↑ ↑ ↑ ↑  ← High uncertainty at pos 0, 1, 2, 3, 4
+        ↑      ↑      ↑      ↑      ↑  ← High uncertainty at pos 0, 1, 2, 3, 4
 t=2: [ [7]] [ [5]] [ [5]] [ [5]] [ EOS]
-        ↑ ↑ ↑ ↑ ↑  ← High uncertainty at pos 0, 1, 2, 3, 4
+        ↑      ↑      ↑      ↑      ↑  ← High uncertainty at pos 0, 1, 2, 3, 4
 t=3: [ [7]] [ [5]] [[18]] [ [9]] [ EOS]
-          ↑ ↑ ↑    ← High uncertainty at pos 1, 2, 3
-                   ← change_ratio = 0.0% < 2% → ✅ Early stopping triggered
-        (no critic — just self-consistency)
+        ↑      ↑      ↑                ← High uncertainty at pos 1, 2, 3
+                                       ← change_ratio = 0.0% < 2% → ✅ Early stopping triggered
 
 Final output: '[Ring1] [C] [S] [O] </s>'
 ```
