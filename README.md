@@ -17,6 +17,26 @@ Instead of left-to-right generation, the model treats text generation as a **den
 The training objective is a **masked-language-modeling** loss whose corruption schedule is **time-dependent**:  
 mask-rate(t) = 1 − t / K.
 
+```text
+t=0: [MASK] [MASK] [MASK] [MASK] [MASK]
+      ↑↑↑↑↑  ← High entropy everywhere (max uncertainty)
+      Fully masked input — refinement begins
+
+t=1: [  C  ] [MASK] [  O  ] [  N  ] [MASK]
+             ↑                   ↑
+      ← Teacher entropy high at positions 1 & 4 → keep refining
+      Confident tokens (C, O, N) are frozen
+
+t=2: [  C  ] [  H  ] [  O  ] [  N  ] [ EOS ]
+      ← Entropy now low across all active positions
+      Sequence appears chemically plausible and stable
+
+t=3: [  C  ] [  H  ] [  O  ] [  N  ] [ EOS ]
+      ← No changes from t=2 → change_ratio = 0.0% < 2%
+      ✅ Early stopping triggered by self-consistency
+         (no external critic — just internal stability)
+```
+
 ---
 
 ## 2. Architecture snapshot
