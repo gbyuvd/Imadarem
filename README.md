@@ -18,7 +18,6 @@ The training objective is a **masked-language-modeling** loss whose corruption s
 mask-rate(t) = 1 − t / K.
 
 ```text
-```text
 🔍 Refinement Trajectory (max_steps=10)
 
 t=0: [MASK] [MASK] [MASK] [MASK] [MASK]
