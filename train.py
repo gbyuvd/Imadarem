@@ -155,7 +155,7 @@ def train_model_z(model, train_loader, test_loader, epochs=10, lr=1e-4):
                 'model_state_dict': model.state_dict(),
                 'val_loss': val_loss,
                 'config': model.config
-            }, "best_model_v.pth")
+            }, "best_chemistrySELFIESmodel.pth")
     
     return model, history
 # ====================================================
@@ -351,8 +351,8 @@ if __name__ == "__main__":
         'model_state_dict': model.state_dict(),
         'config': config,
         'history': history
-    }, "refinement_model_z_final.pth")
-    print("\n✅ Final model saved to 'refinement_model_z_final.pth'")
+    }, "chemistrySELFIESmodelfinal.pth")
+    print("\n✅ Final model saved to 'chemistrySELFIESmodelfinal.pth'")
     
     # ========== Visualizations ==========
     # plot_training_curves(history)
@@ -366,8 +366,8 @@ if __name__ == "__main__":
     print("\n🎉 Training and analysis complete!")
     print("="*70)
     print("\nGenerated files:")
-    print("  - best_model_z.pth (best validation checkpoint)")
-    print("  - refinement_model_z_final.pth (final model)")
+    print("  - best_chemistrySELFIESmodel.pth (best validation checkpoint)")
+    print("  - chemistrySELFIESmodelfinal.pth (final model)")
     print("  - training_curves_chemistry.png (training plots)")
     print("\nKey Improvements:")
     print("  ✅ Length prediction integrated")

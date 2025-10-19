@@ -268,6 +268,193 @@ class ImplicitRefinementModel(nn.Module):
 
         total_loss = recon_loss + self.config.diversity_weight * diversity_loss
         return {"total": total_loss, "recon": recon_loss, "diversity": diversity_loss}
+    
+    @torch.no_grad()
+    def analyze_refinement_trajectory(
+        self,
+        max_len: int,
+        device: torch.device,
+        prompt: Optional[torch.Tensor] = None,
+        seed: Optional[int] = None
+    ) -> dict:
+        if seed is not None:
+            torch.manual_seed(seed)
+        
+        B = 1
+        if prompt is not None:
+            x_t = prompt.clone().to(device).unsqueeze(0)
+            assert x_t.shape[1] == max_len
+        else:
+            x_t = torch.full((B, max_len), self.mask_token_id, device=device)
+        
+        finished = torch.zeros(B, dtype=torch.bool, device=device)
+        x_prev = x_t.clone()
+        x_self_cond = None
+        trajectory = []
+
+        # LOG TRUE INITIAL STATE (t=0: all MASK)
+        tokens_str = self._tokens_to_str(x_t[0])
+        trajectory.append({
+            'step': 0,
+            'tokens': x_t[0].cpu().clone(),
+            'tokens_str': tokens_str,
+            'needs_refine': torch.ones(max_len, dtype=torch.bool),  # all will be refined
+            'mask_str': "↑" * max_len,
+            'entropy': [1.0] * max_len,  # max entropy
+            'change_ratio': 1.0,
+            'finished': False
+        })
+
+        for step in range(self.config.max_refinement_steps):
+            t = torch.full((B,), step, dtype=torch.float, device=device)  # t=0 for first refinement
+            logits = self(x_t, t, x_self_cond)
+            uncertainty = self._get_uncertainty_from_teacher(x_t, t, x_self_cond)
+
+            probs = F.softmax(logits / self.config.sampling_temperature, dim=-1)
+            pred_tokens = torch.multinomial(probs.view(-1, probs.size(-1)), 1).view(B, max_len)
+
+            needs_refine = (uncertainty > self.config.min_refine_uncertainty)
+
+            if self.eos_token_id is not None:
+                eos_mask = (x_t == self.eos_token_id)
+                for b in range(B):
+                    if finished[b]:
+                        needs_refine[b] = False
+                        continue
+                    eos_pos = eos_mask[b].nonzero(as_tuple=True)[0]
+                    if eos_pos.numel() > 0:
+                        first_eos = eos_pos.min().item()
+                        needs_refine[b, first_eos:] = False
+                        finished[b] = True
+
+            new_x_t = torch.where(needs_refine, pred_tokens, x_t)
+            changed = (new_x_t != x_prev)
+            
+            if self.eos_token_id is not None:
+                active = ~finished.unsqueeze(1).expand(-1, max_len)
+                change_ratio = (changed & active).float().sum() / (active.float().sum() + 1e-8)
+            else:
+                change_ratio = changed.float().mean()
+
+            # ✅ LOG AFTER REFINEMENT → this is step+1
+            tokens_str = self._tokens_to_str(new_x_t[0])
+            mask_str = self._build_mask_str(needs_refine[0], new_x_t[0])
+            trajectory.append({
+                'step': step + 1,
+                'tokens': new_x_t[0].cpu().clone(),
+                'tokens_str': tokens_str,
+                'needs_refine': needs_refine[0].cpu().clone(),
+                'mask_str': mask_str,
+                'entropy': uncertainty[0].cpu().tolist(),
+                'change_ratio': change_ratio.item(),
+                'finished': finished.item()
+            })
+
+            if change_ratio < self.config.stop_threshold or finished.all():
+                stopped_early = True
+                x_t = new_x_t
+                break
+
+            x_t = new_x_t
+            x_prev = x_t.clone()
+            if self.config.use_self_cond:
+                x_self_cond = F.softmax(logits, dim=-1).detach()
+        else:
+            stopped_early = False
+
+        # Final sequence (trim at EOS)
+        final_seq = x_t[0].cpu().tolist()
+        if self.eos_token_id is not None:
+            try:
+                eos_idx = final_seq.index(self.eos_token_id)
+                final_seq = final_seq[:eos_idx + 1]
+            except ValueError:
+                pass
+
+        return {
+            'steps': trajectory,
+            'final_seq': final_seq,
+            'stopped_early': stopped_early,
+            'max_steps': self.config.max_refinement_steps
+        }
+
+    def _tokens_to_str(self, tokens: torch.Tensor) -> str:
+        """Convert token IDs to readable strings (handles special tokens)."""
+        ids = tokens.cpu().tolist()
+        strs = []
+        for tid in ids:
+            if tid == self.mask_token_id:
+                strs.append("MASK")
+            elif tid == self.pad_token_id:
+                strs.append("PAD")
+            elif tid == self.eos_token_id:
+                strs.append("EOS")
+            else:
+                try:
+                    # Try decoding single token
+                    tok = self.tokenizer.decode([tid], skip_special_tokens=False).strip()
+                    if tok == "":
+                        tok = f"[{tid}]"
+                    strs.append(tok)
+                except:
+                    strs.append(f"[{tid}]")
+        return strs
+
+    def _build_mask_str(self, needs_refine: torch.Tensor, tokens: torch.Tensor) -> str:
+        """Build arrow/indicator string showing which positions were refined."""
+        arrows = []
+        for i, refine in enumerate(needs_refine):
+            if refine:
+                arrows.append("↑")
+            else:
+                # Check if it's a stable non-MASK token
+                if tokens[i].item() not in [self.mask_token_id, self.pad_token_id]:
+                    arrows.append(" ")
+                else:
+                    arrows.append("·")  # masked but not refined (e.g., after EOS)
+        return "".join(arrows)
+    
+    def print_refinement_trajectory(self, analysis: dict, tokenizer=None):
+        steps = analysis['steps']
+        print(f"🔍 Refinement Trajectory (max_steps={analysis['max_steps']})\n")
+        
+        for i, step_info in enumerate(steps):
+            step = step_info['step']
+            tokens = step_info['tokens_str']
+            mask_arrows = step_info['mask_str']
+            change_ratio = step_info['change_ratio']
+
+            token_display = " ".join([f"[{t:>4}]" for t in tokens])
+            print(f"t={step}: {token_display}")
+            
+            if step == 0:
+                print("       " + " ↑" * len(tokens) + "  ← High entropy everywhere (max uncertainty)")
+            else:
+                if any(c == "↑" for c in mask_arrows):
+                    refined_positions = [i for i, c in enumerate(mask_arrows) if c == "↑"]
+                    pos_str = ", ".join(str(i) for i in refined_positions)
+                    # Align arrows under tokens
+                    arrow_line = ""
+                    for j in range(len(tokens)):
+                        if j in refined_positions:
+                            arrow_line += " ↑"
+                        else:
+                            arrow_line += "  "
+                    print(f"       {arrow_line}  ← High uncertainty at pos {pos_str}")
+                else:
+                    print(f"       {'  ' * len(tokens)}  ← Entropy low; tokens stable")
+
+            # Only show change ratio on the last printed step
+            if i == len(steps) - 1:
+                stop_msg = "✅ Early stopping triggered" if analysis['stopped_early'] else "⏹️  Max steps reached"
+                print(f"       {'  ' * len(tokens)}  ← change_ratio = {change_ratio:.1%} < {self.config.stop_threshold:.0%} → {stop_msg}")
+                print("        (no critic — just self-consistency)")
+
+        if tokenizer is not None:
+            decoded = tokenizer.decode(analysis['final_seq'], skip_special_tokens=False)
+            print(f"\nFinal output: {repr(decoded)}")
+        else:
+            print(f"\nFinal token IDs: {analysis['final_seq']}")
 
 from transformers import AutoTokenizer
 
