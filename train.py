@@ -161,7 +161,7 @@ def train_model_z(model, train_loader, test_loader, epochs=10, lr=1e-4):
 # ====================================================
 # 4. Analysis Functions
 # ====================================================
-def generate_and_decode(model, tokenizer, num_samples=5, seq_len=90, temperature=1.0):
+def generate_and_decode(model, tokenizer, num_samples=5, max_len=90, temperature=1.0):
     """Generate chemistry molecules using adaptive refinement."""
     model.eval()
     print(f"\n🧪 Generating {num_samples} SELFIES molecules...")
@@ -169,18 +169,22 @@ def generate_and_decode(model, tokenizer, num_samples=5, seq_len=90, temperature
     print("="*70)
     
     with torch.no_grad():
-        samples = model.sample(
-            batch_size=num_samples,
-            seq_len=seq_len,
-            device=device,
-            temperature=temperature,
-            return_trajectory=False
-        )
+        samples = model.sample(batch_size=2, max_len=20, device='cuda')
     
-    actual_lengths = model.compute_actual_lengths(samples)
+    # Compute actual lengths (stop at first pad or eos)
+    actual_lengths = []
+    for s in samples:
+        # Find first pad or eos
+        s_list = s if isinstance(s, list) else s.tolist()
+        length = len(s_list)
+        for i, tok in enumerate(s_list):
+            if tok == tokenizer.pad_token_id or tok == tokenizer.eos_token_id:
+                length = i
+                break
+        actual_lengths.append(torch.tensor(length))
     
     for i, (sample, length) in enumerate(zip(samples, actual_lengths)):
-        decoded = tokenizer.decode(sample.tolist(), skip_special_tokens=True)
+        decoded = tokenizer.decode(sample[:length.item()], skip_special_tokens=True)
         print(f"{i+1}. (len={length.item()}) {decoded}")
     
     print("="*70)
