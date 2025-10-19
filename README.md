@@ -37,6 +37,16 @@ t=3: [  C  ] [  H  ] [  O  ] [  N  ] [ EOS ]
          (no external critic — just internal stability)
 ```
 
+Example:
+```text
+🔍 Refinement Trajectory (max_steps=10)
+t=1: [[12]] [ [5]] [ [5]] [ [5]] [[10]]
+t=2: [ [7]] [ [5]] [ [5]] [ [5]] [ EOS]
+t=3: [ [7]] [ [5]] [[18]] [ [9]] [ EOS]                    
+              ← change_ratio = 0.0% < 2% → ✅ Early stopping triggered
+Final output: '[Ring1] [C] [S] [O] </s>'
+```
+
 ---
 
 ## 2. Architecture snapshot
