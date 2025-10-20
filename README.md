@@ -99,6 +99,7 @@ ImplicitRefinementConfig(
     diversity_weight=0.05,
     sampling_temperature=1.2
 )
+model = ImplicitRefinementModel(config, tokenizer=tokenizer)
 ```
 
 ## 7. Strengths & limitations
